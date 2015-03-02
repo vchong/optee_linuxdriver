@@ -201,64 +201,54 @@ TEEC_Result TEEC_RegisterSharedMemory(TEEC_Context *context,
 EXPORT_SYMBOL(TEEC_RegisterSharedMemory);
 
 TEEC_Result TEEC_AllocateSharedMemory(TEEC_Context *context,
-				      TEEC_SharedMemory *sharedMem)
+				      TEEC_SharedMemory *shared_memory)
 {
-	struct tee_shm *tee_shm;
-	struct tee_context *ctx;
+	struct tee_shm_io shm_io;
+	int ret;
+	struct tee_shm *shm;
 
-	if (!context || !sharedMem)
+	if (!context || !context->ctx || !shared_memory)
 		return TEEC_ERROR_BAD_PARAMETERS;
 
-	/* TODO fixme will not work on 64-bit platform */
-	ctx = (struct tee_context *)(uintptr_t)context->fd;
-
-	tee_shm = tee_shm_alloc(ctx, sharedMem->size, sharedMem->flags);
-	if (IS_ERR_OR_NULL(tee_shm)) {
-		pr_err
-		    ("TEEC_AllocateSharedMemory: tee_shm_allocate(%zu) failed\n",
-		     sharedMem->size);
+	shm_io.size = shared_memory->size;
+	shm_io.flags = shared_memory->flags | TEEC_MEM_KAPI;
+	ret = tee_shm_alloc_io(context->ctx, &shm_io);
+	if (ret) {
+		pr_err("%s: tee_shm_alloc_io(%zd) failed\n", __func__,
+		     shared_memory->size);
 		return TEEC_ERROR_OUT_OF_MEMORY;
 	}
 
-	pr_info("TEEC_AllocateSharedMemory (%zu) => paddr = %p, flags %x\n",
-		sharedMem->size, (void *)tee_shm->paddr, tee_shm->flags);
+	shared_memory->registered = 0;
+	shared_memory->flags = shm_io.flags;
+	shared_memory->d.fd = shm_io.fd_shm;
 
-	sharedMem->buffer = ioremap_nocache(tee_shm->paddr, sharedMem->size);
-	if (!sharedMem->buffer) {
-		pr_err("TEEC_AllocateSharedMemory: ioremap_nocache(%p, %zu) failed\n",
-		     (void *)tee_shm->paddr, sharedMem->size);
-		tee_shm_free(tee_shm);
-		return TEEC_ERROR_OUT_OF_MEMORY;
-	}
+	shm = (struct tee_shm *)(long)shm_io.fd_shm;
+	shared_memory->buffer = shm->kaddr;
 
-	sharedMem->registered = 0;
-	sharedMem->flags |= tee_shm->flags;
-	/* TODO fixme will not work on 64-bit platform */
-	sharedMem->d.fd = (int)(uintptr_t)tee_shm;
-	BUG_ON(tee_shm != (struct tee_shm *)(uintptr_t)sharedMem->d.fd);
+	pr_debug("TEEC_AllocateSharedMemory (%zd) => fd=%d, kaddr=%p\n",
+		shm_io.size, shm_io.fd_shm, (void *)shared_memory->buffer);
 
 	return TEEC_SUCCESS;
 }
 EXPORT_SYMBOL(TEEC_AllocateSharedMemory);
 
-void TEEC_ReleaseSharedMemory(TEEC_SharedMemory *sharedMemory)
+void TEEC_ReleaseSharedMemory(TEEC_SharedMemory *shared_memory)
 {
 	struct tee_shm *shm;
 
-	if (!sharedMemory)
+	if (!shared_memory)
 		return;
 
-	if (sharedMemory->registered)
+	if (shared_memory->registered)
 		return;
 
-	/* TODO fixme will not work on 64-bit platform */
-	shm = (struct tee_shm *)(uintptr_t)sharedMemory->d.fd;
+	pr_debug("%s (vaddr = %p)\n", __func__, shared_memory->buffer);
 
-	pr_info("TEEC_ReleaseSharedMemory (vaddr = %p)\n",
-		sharedMemory->buffer);
+	shm = (struct tee_shm *)(long)shared_memory->d.fd;
+	tee_shm_free_io(shm);
 
-	iounmap(sharedMemory->buffer);
-	sharedMemory->buffer = NULL;
-	tee_shm_free(shm);
+	shared_memory->buffer = NULL;
+	shared_memory->d.fd = 0;
 }
 EXPORT_SYMBOL(TEEC_ReleaseSharedMemory);

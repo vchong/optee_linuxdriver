@@ -41,6 +41,7 @@ static int device_match(struct device *device, const void *devname)
 {
 	struct tee *tee = dev_get_drvdata(device);
 	int ret = strncmp(devname, tee->name, sizeof(tee->name));
+
 	BUG_ON(!tee);
 	if (ret == 0)
 		return 1;
@@ -55,6 +56,7 @@ static int device_match(struct device *device, const void *devname)
 struct tee *tee_get_tee(const char *devname)
 {
 	struct device *device;
+
 	if (!devname)
 		return NULL;
 	device = class_find_device(misc_class, NULL, devname, device_match);
@@ -108,6 +110,7 @@ int tee_get(struct tee *tee)
 		atomic_dec(&tee->refcount);
 	} else {
 		int count = (int)atomic_read(&tee->refcount);
+
 		dev_dbg(_DEV(tee), "%s: refcount=%d\n", __func__, count);
 		if (count > tee->max_refcount)
 			tee->max_refcount = count;
@@ -150,6 +153,7 @@ int tee_put(struct tee *tee)
 static int tee_supp_open(struct tee *tee)
 {
 	int ret = 0;
+
 	dev_dbg(_DEV(tee), "%s: appclient=\"%s\" pid=%d\n", __func__,
 		current->comm, current->pid);
 
@@ -283,6 +287,7 @@ static int tee_do_shm_alloc(struct tee_context *ctx,
 	int ret = -EINVAL;
 	struct tee_shm_io k_shm;
 	struct tee *tee = ctx->tee;
+
 	BUG_ON(!ctx->usr_client);
 
 	dev_dbg(_DEV(tee), "%s: >\n", __func__);
@@ -303,11 +308,12 @@ static int tee_do_shm_alloc(struct tee_context *ctx,
 		goto exit;
 	}
 
-	ret = tee_shm_alloc_fd(ctx, &k_shm);
+	ret = tee_shm_alloc_io(ctx, &k_shm);
 	if (ret)
 		goto exit;
 
 	put_user(k_shm.fd_shm, &u_shm->fd_shm);
+	put_user(k_shm.flags, &u_shm->flags);
 
 exit:
 	dev_dbg(_DEV(tee), "%s: < ret=%d, shmfd=%d\n", __func__, ret,
@@ -339,7 +345,7 @@ static int tee_do_get_fd_for_rpc_shm(struct tee_context *ctx,
 		goto exit;
 	}
 
-	ret = tee_shm_get_fd(ctx, &k_shm);
+	ret = tee_shm_fd_for_rpc(ctx, &k_shm);
 	if (ret)
 		goto exit;
 
