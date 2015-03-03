@@ -727,7 +727,7 @@ struct tee_shm *tee_shm_get(struct tee_context *ctx, TEEC_SharedMemory *c_shm,
 	shm->size_alloc = 0;
 
 	if (c_shm->flags & TEEC_MEM_KAPI) {
-		struct tee_shm *kc_shm = (struct tee_shm *)c_shm->d.fd;
+		struct tee_shm *kc_shm = (struct tee_shm *)c_shm->d.ptr;
 		if (!kc_shm) {
 			dev_err(_DEV(tee), "kapi fd null\n");
 			ret = -EINVAL;
@@ -736,7 +736,7 @@ struct tee_shm *tee_shm_get(struct tee_context *ctx, TEEC_SharedMemory *c_shm,
 		shm->paddr = kc_shm->paddr;
 
 		if (kc_shm->size_alloc < size + offset) {
-			dev_err(_DEV(tee), "kapi buff too small %d < %d + %d\n",
+			dev_err(_DEV(tee), "kapi buff too small %zd < %zd + %d\n",
 				kc_shm->size_alloc, size, offset);
 			ret = -EINVAL;
 			goto err;
@@ -776,8 +776,8 @@ void tee_shm_put(struct tee_context *ctx, struct tee_shm *shm)
 {
 	struct tee *tee = ctx->tee;
 
-	dev_dbg(_DEV(tee), "%s: > shm=%p flags=%08x paddr=%x\n",
-			__func__, (void *)shm, shm->flags, shm->paddr);
+	dev_dbg(_DEV(tee), "%s: > shm=%p flags=%08x paddr=%p\n",
+			__func__, (void *)shm, shm->flags, (void *)shm->paddr);
 
 	BUG_ON(!shm);
 	BUG_ON(!(shm->flags & TEE_SHM_MEMREF));

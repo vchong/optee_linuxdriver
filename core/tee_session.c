@@ -594,7 +594,7 @@ static int _init_tee_cmd(struct tee_session *sess, struct tee_cmd_io *cmd_io,
 				size = param->c_shm[idx].size;
 			else { /* for PARTIAL, check the size */
 				if (param->c_shm[idx].size < size + offset) {
-					dev_err(_DEV(tee), "A PARTIAL parameter is bigger than the parent %d < %d + %d\n",
+					dev_err(_DEV(tee), "A PARTIAL parameter is bigger than the parent %zd < %d + %d\n",
 						param->c_shm[idx].size, size,
 						offset);
 					goto out;
