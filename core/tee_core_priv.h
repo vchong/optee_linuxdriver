@@ -37,5 +37,6 @@ int tee_session_close_and_destroy(struct tee_session *sess);
 
 struct tee *tee_get_tee(const char *devname);
 int tee_session_invoke_be(struct tee_session *sess, struct tee_cmd_io *cmd_io);
+int tee_session_makesecure_be(struct tee_session *sess, struct tee_cmd_io *cmd_io);
 
 #endif

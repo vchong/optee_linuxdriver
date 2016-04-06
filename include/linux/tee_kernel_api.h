@@ -132,6 +132,11 @@ TEEC_Result TEEC_InvokeCommand(TEEC_Session *session,
 			       TEEC_Operation *operation,
 			       uint32_t *returnOrigin);
 
+TEEC_Result TEEC_MakeSecure(TEEC_Session *session,
+			       uint32_t commandID,
+			       TEEC_Operation *operation,
+			       uint32_t *returnOrigin);
+
 /**
  * TEEC_RegisterSharedMemory() - Register a block of existing memory as a
  * shared block within the scope of the specified context.

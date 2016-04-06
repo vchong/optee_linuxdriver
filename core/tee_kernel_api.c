@@ -189,6 +189,44 @@ TEEC_Result TEEC_InvokeCommand(TEEC_Session *session,
 }
 EXPORT_SYMBOL(TEEC_InvokeCommand);
 
+TEEC_Result TEEC_MakeSecure(TEEC_Session *session,
+			       uint32_t commandID,
+			       TEEC_Operation *operation,
+			       uint32_t *return_origin)
+{
+	int ret = 0;
+	struct tee_cmd_io cmd;
+	struct tee_session *sess;
+
+	if (!session || !operation || !return_origin || !session->fd)
+	{
+		printk("TEEC_ERROR_BAD_PARAMETERS tee_kernel_api.c\n");
+		return TEEC_ERROR_BAD_PARAMETERS;
+	}
+
+	/* TODO fixme will not work on 64-bit platform */
+	sess = (struct tee_session *)(uintptr_t)session->fd;
+	reset_tee_cmd(&cmd);
+	cmd.cmd = commandID;
+	cmd.op = operation;
+
+	ret = tee_session_makesecure_be(sess, &cmd);
+	if (ret) {
+		if (cmd.origin)
+			*return_origin = cmd.origin;
+		else
+			*return_origin = TEEC_ORIGIN_COMMS;
+		if (cmd.err)
+			return cmd.err;
+		else
+			return TEEC_ERROR_COMMUNICATION;
+	} else {
+		*return_origin = cmd.origin;
+		return cmd.err;
+	}
+}
+EXPORT_SYMBOL(TEEC_MakeSecure);
+
 TEEC_Result TEEC_RegisterSharedMemory(TEEC_Context *context,
 				      TEEC_SharedMemory *sharedMem)
 {

@@ -610,6 +610,69 @@ static int tz_open(struct tee_session *sess, struct tee_cmd *cmd)
 	return ret;
 }
 
+static int tz_makesecure(struct tee_session *sess, struct tee_cmd *cmd)
+{
+	struct tee *tee;
+	struct tee_tz *ptee;
+	int ret = 0;
+
+	struct teesmc32_arg *arg32;
+	uintptr_t parg32;
+	struct teesmc32_param *params32;
+
+	printk ("tz_makesecure\n");
+
+	BUG_ON(!sess->ctx->tee);
+	BUG_ON(!sess->ctx->tee->priv);
+	tee = sess->ctx->tee;
+	ptee = tee->priv;
+
+	dev_dbg(DEV, "> sessid %x cmd %x type %x\n",
+		sess->sessid, cmd->cmd, cmd->param.type);
+
+	if (!CAPABLE(tee)) {
+		printk ("tz_makesecure: not capable\n");
+		dev_dbg(tee->dev, "< not capable\n");
+		return -EBUSY;
+	}
+
+	arg32 = (typeof(arg32))alloc_tee_arg(ptee, &parg32,
+			TEESMC32_GET_ARG_SIZE(TEEC_CONFIG_PAYLOAD_REF_COUNT));
+	if (!arg32) {
+		free_tee_arg(ptee, parg32);
+		printk ("tz_makesecure: oom\n");
+		return TEEC_ERROR_OUT_OF_MEMORY;
+	}
+
+	memset(arg32, 0, sizeof(*arg32));
+	arg32->num_params = TEEC_CONFIG_PAYLOAD_REF_COUNT;
+	params32 = TEESMC32_GET_PARAMS(arg32);
+
+	printk ("a = 0x%x, b = 0x%x\n", params32->u.value.a, params32->u.value.b);
+
+	arg32->cmd = TEESMC_CMD_SHM_MAKE_SECURE;
+	arg32->session = sess->sessid;
+	arg32->ta_func = cmd->cmd;
+
+	set_params(ptee, params32, cmd->param.type, &cmd->param);
+
+	call_tee(ptee, parg32, arg32);
+
+	get_params(&cmd->param, params32);
+
+	if (arg32->ret != TEEC_ERROR_COMMUNICATION) {
+		cmd->err = arg32->ret;
+		cmd->origin = arg32->ret_origin;
+	} else
+		ret = -EBUSY;
+
+	free_tee_arg(ptee, parg32);
+
+	dev_dbg(DEV, "< %x:%d\n", arg32->ret, ret);
+	return ret;
+}
+
+
 /*
  * tee_invoke_command - invoke TEE to invoke a GP TEE command
  */
@@ -622,6 +685,8 @@ static int tz_invoke(struct tee_session *sess, struct tee_cmd *cmd)
 	struct teesmc32_arg *arg32;
 	uintptr_t parg32;
 	struct teesmc32_param *params32;
+
+	printk ("tz_invoke\n");
 
 	BUG_ON(!sess->ctx->tee);
 	BUG_ON(!sess->ctx->tee->priv);
@@ -1114,6 +1179,7 @@ const struct tee_ops tee_fops = {
 	.alloc = tz_alloc,
 	.free = tz_free,
 	.shm_inc_ref = tz_shm_inc_ref,
+	.makesecure = tz_makesecure,
 };
 
 static int tz_tee_init(struct platform_device *pdev)

@@ -23,6 +23,7 @@ static void _release_tee_cmd(struct tee_session *sess, struct tee_cmd *cmd);
 #define OUTMSG(val) dev_dbg(_DEV_TEE, "%s: < %d\n", __func__, (int)val)
 
 /******************************************************************************/
+static int makesecure = 0;
 
 static inline bool flag_present(int val, int flags)
 {
@@ -138,6 +139,40 @@ out:
 	return ret;
 }
 
+int tee_session_makesecure_be(struct tee_session *sess, struct tee_cmd_io *cmd_io)
+{
+	int ret = -EINVAL;
+	struct tee *tee;
+	struct tee_cmd cmd;
+
+	printk ("tee_session_makesecure_be\n");
+
+	BUG_ON(!sess || !sess->ctx || !sess->ctx->tee);
+
+	tee = sess->ctx->tee;
+
+	dev_dbg(_DEV(tee), "%s: > sessid=%08x, cmd=0x%08x\n", __func__,
+		sess->sessid, cmd_io->cmd);
+
+	ret = _init_tee_cmd(sess, cmd_io, &cmd);
+	if (ret)
+		goto out;
+
+	ret = tee->ops->makesecure(sess, &cmd);
+	if (!ret)
+		_update_client_tee_cmd(sess, cmd_io, &cmd);
+	else {
+		/* propagate the reason of the error */
+		cmd_io->origin = cmd.origin;
+		cmd_io->err = cmd.err;
+	}
+
+out:
+	_release_tee_cmd(sess, &cmd);
+	dev_dbg(_DEV(tee), "%s: < ret=%d", __func__, ret);
+	return ret;
+}
+
 int tee_session_invoke_be(struct tee_session *sess, struct tee_cmd_io *cmd_io)
 {
 	int ret = -EINVAL;
@@ -214,6 +249,51 @@ out:
 	return ret;
 }
 
+static int tee_do_makesecure(struct tee_session *sess,
+				 struct tee_cmd_io __user *u_cmd)
+{
+	int ret = -EINVAL;
+	struct tee *tee;
+	struct tee_cmd_io k_cmd;
+	struct tee_context *ctx;
+
+	printk ("tee_do_makesecure\n");
+
+	BUG_ON(!sess->ctx);
+	BUG_ON(!sess->ctx->tee);
+	ctx = sess->ctx;
+	tee = sess->ctx->tee;
+
+	dev_dbg(_DEV(tee), "%s: > sessid=%08x\n", __func__, sess->sessid);
+
+	BUG_ON(!sess->sessid);
+
+	if (tee_copy_from_user
+	    (ctx, &k_cmd, (void *)u_cmd, sizeof(struct tee_cmd_io))) {
+		dev_err(_DEV(tee), "%s: tee_copy_from_user failed\n", __func__);
+		goto exit;
+	}
+
+	if ((k_cmd.op == NULL) || (k_cmd.uuid != NULL) ||
+	    (k_cmd.data != NULL) || (k_cmd.data_size != 0)) {
+		dev_err(_DEV(tee),
+			"%s: op or/and data parameters are not valid\n",
+			__func__);
+		goto exit;
+	}
+
+	ret = tee_session_makesecure_be(sess, &k_cmd);
+	if (ret)
+		dev_err(_DEV(tee), "%s: tee_makesecure failed\n", __func__);
+
+	tee_put_user(ctx, k_cmd.err, &u_cmd->err);
+	tee_put_user(ctx, k_cmd.origin, &u_cmd->origin);
+
+exit:
+	dev_dbg(_DEV(tee), "%s: < ret=%d\n", __func__, ret);
+	return ret;
+}
+
 static int tee_do_invoke_command(struct tee_session *sess,
 				 struct tee_cmd_io __user *u_cmd)
 {
@@ -221,6 +301,8 @@ static int tee_do_invoke_command(struct tee_session *sess,
 	struct tee *tee;
 	struct tee_cmd_io k_cmd;
 	struct tee_context *ctx;
+
+	printk ("tee_do_invoke_command\n");
 
 	BUG_ON(!sess->ctx);
 	BUG_ON(!sess->ctx->tee);
@@ -308,6 +390,9 @@ static long tee_session_ioctl(struct file *filp, unsigned int cmd,
 	struct tee_session *sess = filp->private_data;
 	int ret;
 
+	printk ("tee_session_ioctl4 cmd = %u\n", cmd);
+	printk ("%s: > cmd nr=%d\n", __func__, _IOC_NR(cmd));
+
 	BUG_ON(!sess || !sess->ctx || !sess->ctx->tee);
 
 	tee = sess->ctx->tee;
@@ -316,14 +401,23 @@ static long tee_session_ioctl(struct file *filp, unsigned int cmd,
 
 	switch (cmd) {
 	case TEE_INVOKE_COMMAND_IOC:
+		printk ("call tee_do_invoke_command\n");
 		ret =
 		    tee_do_invoke_command(sess,
 					  (struct tee_cmd_io __user *)arg);
 		break;
+	case TEE_MAKESECURE_IOC:
+		printk ("call tee_do_makesecure\n");
+		ret =
+			tee_do_makesecure(sess,
+					  (struct tee_cmd_io __user *)arg);
+		break;
 	case TEE_REQUEST_CANCELLATION_IOC:
+		printk ("call tee_do_cancel_cmd\n");
 		ret = tee_do_cancel_cmd(sess, (struct tee_cmd_io __user *)arg);
 		break;
 	default:
+		printk ("no matching ioctls\n");
 		ret = -ENOSYS;
 		break;
 	}
@@ -494,6 +588,14 @@ static bool tee_session_is_supported_type(struct tee_session *sess, int type)
 
 static int to_memref_type(int flags)
 {
+	printk ("to_memref_type\n");
+
+	if (flag_present(flags, TEEC_MEM_SECURE))
+	{
+		printk ("makesecure = 1\n");
+		makesecure = 1;
+	}
+
 	if (flag_present(flags, TEEC_MEM_INPUT | TEEC_MEM_OUTPUT))
 		return TEEC_MEMREF_TEMP_INOUT;
 
@@ -770,7 +872,7 @@ static void _update_client_tee_cmd(struct tee_session *sess,
 			/* If we allocated a tmpref buffer,
 			 * copy back data to the user buffer */
 			if (is_mapped_temp(cmd->param.params[idx].shm->flags)) {
-				BUG_ON(!parent->size > 0);
+				//BUG_ON(!parent->size > 0);
 				if (parent->buffer &&
 					offset + size_new <= parent->size) {
 					if (tee_copy_to_user(ctx,
